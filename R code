@@ -1,0 +1,381 @@
+#install.packages('caret')
+#install.packages("rpart")
+#install.packages('dplyr')
+#install.packages('reshape2')
+#install.packages("catool")
+#install.packages('e1071')
+library(e1071)
+library(rpart)
+library(caret)
+library(dplyr)
+library(reshape2)
+library(caTools)
+
+i360=read.csv("C:/Users/leoaman/Desktop/i360.csv")
+test=read.csv("C:/Users/leoaman/Desktop/test.csv")
+colnames(i360)
+colnames(test)
+
+
+#checaking zero variance variables
+
+#nsv=nearZeroVar(i360,saveMetrics = TRUE)
+
+#no of missing values in each columns
+
+sapply(i360, function(x) sum(is.na(x)))
+
+sapply(test, function(x) sum(is.na(x)))
+
+# removing columns with high missing value
+
+i360$f147=NULL
+i360$f127=NULL
+i360$f1=NULL
+
+test$f147=NULL
+test$f127=NULL
+test$f1=NULL
+# removing column with high variance
+
+i360$ID=NULL
+test$ID=NULL
+
+#counting the no of missing values in each row
+
+i360$na_count=apply(i360, 1, function(x) sum(is.na(x)))
+
+test$na_count=apply(test, 1, function(x) sum(is.na(x)))
+
+summary(i360$na_count)
+
+#removing rows with missing values more than 40
+
+i360 <- i360[i360$na_count < 40, ]
+
+test <- test[test$na_count < 40, ]
+
+
+impute=function(y)
+{
+set.seed(2016)
+
+i360$impute=NA
+x=rpart(y~.,data=i360)
+
+i360$impute= predict(x, newdata=i360)
+y[is.na(y)] <-i360$impute[is.na(y)]
+i360$impute=NULL
+
+
+return(y)
+}
+
+impute2=function(y)
+{
+  set.seed(2016)
+  
+  test$impute=NA
+  x=rpart(y~.,data=test)
+  
+  test$impute= predict(x, newdata=test)
+  y[is.na(y)] <-test$impute[is.na(y)]
+  test$impute=NULL
+  
+  
+  return(y)
+}
+
+for (i in 5:147){
+  if(sum(is.na(i360[,i]))> 0)
+ i360[,i]=impute(i360[,i])
+}
+
+for (i in 1:147){
+  if(sum(is.na(test[,i]))> 0)
+    test[,i]=impute2(test[,i])
+}
+
+i360=rbind(i360,test)
+i360$f4=impute(i360$f4)
+write.csv(i360,file = "MyData.csv")
+
+#install.packages("corrgram")
+#install.packages("corrplot")
+library(corrplot)
+
+nums <- sapply(i360, is.numeric)
+numi360=i360[,nums]
+corrplot(cor(numi360))
+
+d_cor <- as.matrix(cor(numi360))
+d_cor_melt <- dplyr::arrange(melt(d_cor), -abs(value))
+z=subset(d_cor_melt, value > .7 & value< 1)
+
+
+
+
+colnames(numi360)
+
+pca <- numi360[,c(13,2:9,26,28,30:33,35:37,39:46,53,115:120,111:112)]
+pca=as.data.frame(scale(pca))
+
+
+pca2 <- prcomp(pca,scale=T)
+
+screeplot(pca2, type="lines",col=3)
+
+summary(pca2)
+
+newdat<-pca2$x[,1:15]
+
+
+
+pca3 <- prcomp(numi360,scale=T)
+
+screeplot(pca3, type="lines",col=3)
+
+summary(pca3)
+
+newdat2<-pca3$x[,1:64]
+
+
+
+i360=cbind(i360,newdat)
+i360pca=cbind(i360,newdat2)
+
+for (i in names(pca)){
+  i360[[i]]=NULL
+}
+
+
+for (i in names(numi360)){
+  i360pca[[i]]=NULL
+}
+
+i360test=i360[is.na(i360$SPENDING.RESPONSE),]
+i360train=i360[!is.na(i360$SPENDING.RESPONSE),]
+
+
+##################################################################################################
+# Spliting the Data into Testing and Validation
+##################################################################################################
+
+split = sample.split(i360train$SPENDING.RESPONSE, SplitRatio = 0.7)
+
+train = subset(i360train, split==TRUE)
+
+test = subset(i360train, split==FALSE)
+
+######################################################################################################## 
+# Baseline Model
+########################################################################################################
+
+table(test$SPENDING.RESPONSE)
+
+
+#  Accuracy :  
+
+4795/(4795+1202)
+
+# 0.7995664
+
+levels(train$SPENDING.RESPONSE) = c(1:length(levels(train$SPENDING.RESPONSE)))
+levels(test$SPENDING.RESPONSE) = c(1:length(levels(test$SPENDING.RESPONSE)))
+
+########################################################################################################
+# Decision Tree
+########################################################################################################
+
+
+set.seed(2016)
+tree = rpart( SPENDING.RESPONSE~ ., data=train, method="class")
+predicttree = predict(tree, newdata=test, type="class")
+table(test$SPENDING.RESPONSE, predicttree)
+
+(4617+433)/(4617+433+178+769)
+
+
+#accuracy
+#0.8420877
+
+
+
+
+
+# seeing variable of imp
+
+gbmImp <- varImp(tree, scale = FALSE)
+gbmImp
+
+# f100      46.09797
+# f102     227.89852
+# f107     109.73354
+# f118      79.10927
+# f2       137.84176
+# f93       76.10594
+# State    834.65913
+
+
+
+
+
+#Simple decision tree with proper variable selection
+
+set.seed(2016)
+tree2 = rpart( SPENDING.RESPONSE~f100+f102+f107+f118+f2+f93+State, data=train, method="class")
+predicttree2 = predict(tree2, newdata=test, type="class")
+table(test$SPENDING.RESPONSE, predicttree2)
+
+# predicttree2
+#    1    2
+# 1 4617  178
+# 2  769  433
+
+#accuracy
+
+(4617+433)/(4617+433+178+769)
+
+# 0.8420877
+
+ # tuning the above decision tree
+
+obj3 <- tune.rpart(SPENDING.RESPONSE~f100+f102+f107+f118+f2+f93+State, data = train, minsplit = c(1,3,7))
+summary(obj3)
+
+
+
+
+set.seed(2016)
+tree3 = rpart( SPENDING.RESPONSE~f100+f102+f107+f118+f2+f93+State, data=train, method="class",minsplit=1)
+predicttree3 = predict(tree3, newdata=test, type="class")
+table(test$SPENDING.RESPONSE, predicttree3)
+
+#accuracy
+(4617+433)/(4617+433+178+769)
+
+# 0.8420877
+###################################################################################################
+#   Random Forest
+###################################################################################################
+
+
+
+
+
+set.seed(2016)
+#install.packages("randomForest")
+library(randomForest)
+Forest=randomForest(SPENDING.RESPONSE~.-f115,data = train)
+# Make predictions:
+predictRForest = predict(Forest, newdata=test)
+table(test$SPENDING.RESPONSE,predictRForest)
+
+# predictRForest
+#    1    2
+# 1 4709   86
+# 2 1196    6
+
+(4709+6)/(4709+6+86+1196)
+
+# 0.7862264
+
+
+#Simple random forest with proper variable selection
+Forest2=randomForest(SPENDING.RESPONSE~f100+f102+f107+f118+f2+f93+State,data = train)
+# Make predictions:
+predictRForest2 = predict(Forest2, newdata=test)
+table(test$SPENDING.RESPONSE,predictRForest2)
+# 
+# predictRForest2
+#    1    2
+# 1 4624  171
+# 2 1181   21
+
+#accuracy
+
+(4624+21)/(4624+21+171+1181)
+
+#0.7745539
+
+
+#tuning the random forest as it is not giving good prediction
+Forest4=randomForest(SPENDING.RESPONSE~f100+f102+f107+f118+f2+f93+State,data = train,mtry=1, ntree=500, importance=TRUE, do.trace=100)
+
+# ntree      OOB      1      2
+# 100:  20.65%  0.82% 99.79%
+# 200:  20.67%  0.88% 99.61%
+# 300:  20.68%  0.94% 99.47%
+# 400:  20.75%  1.03% 99.47%
+
+
+# thus optimum ntree=100 with least OBE
+
+
+
+
+
+tune.rf <- tuneRF(train[,c(1:2,73,75,80,91,66)],train[,111], stepFactor=.5,improve=1e-5, ntree=200)
+
+#optimum mtry=1  for least OBE
+
+
+#tuned Randomforest
+
+
+
+Forest3=randomForest(SPENDING.RESPONSE~f100+f102+f107+f118+f2+f93+State,data = train,mtry=1,ntree=100)
+# Make predictions:
+predictRForest3 = predict(Forest3, newdata=test)
+table(test$SPENDING.RESPONSE,predictRForest3)
+
+# predictRForest3
+#    1    2
+# 1 4701   94
+# 2 1189   13
+
+
+#accuracy 
+
+(4694+15)/(4694+15+1187+101)
+
+#  0.7852259
+
+
+
+########################
+# NaiveBayes Modeling with variable selection 
+########################
+
+set.seed(2016)
+nv=naiveBayes(SPENDING.RESPONSE~f100+f102+f107+f118+f2+f93+State,data = train)
+predicnv= predict(nv,newdata = test)
+table(test$SPENDING.RESPONSE,predicnv)
+
+# predicnv
+#     1    2
+# 1 4371  424
+# 2  678  524
+
+(4371+524)/(4371+524+424+678)
+#0.8162415
+
+
+######################################################################################
+# SVM Model with variable selection
+######################################################################################
+set.seed(2016)
+SVM = svm(SPENDING.RESPONSE~f100+f102+f107+f118+f2+f93+State,data = train)
+# Predicting the validation set based on the model
+predict_svm<- predict(SVM,newdata=test)
+table(test$SPENDING.RESPONSE,predict_svm)
+
+# predict_svm
+#    1    2
+# 1 4654  141
+# 2  870  332
+
+(4654+141)/(4654+141+870+141)
+# 0.8258698
+
+
